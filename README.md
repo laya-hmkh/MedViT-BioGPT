@@ -23,11 +23,11 @@ The goal is to develop an automated system for generating accurate and clinicall
 ## Future Work
 I am exploring the following procedures to enhance the model:
 
-  *Reinforcement Learning for Caption Generation:
-  -Apply reinforcement learning (e.g., REINFORCE or Proximal Policy Optimization) to optimize caption generation.
-  -Use reward functions based on clinical relevance (e.g., presence of medical terms like "diabetic retinopathy") and linguistic coherence to improve caption quality.
+  Reinforcement Learning for Caption Generation:
+  - Apply reinforcement learning (e.g., REINFORCE or Proximal Policy Optimization) to optimize caption generation.
+  - Use reward functions based on clinical relevance (e.g., presence of medical terms like "diabetic retinopathy") and linguistic coherence to improve caption quality.
 
-  *Perceiver Architecture:
+  Perceiver Architecture:
   - Integrate the Perceiver model to efficiently process multimodal inputs (retinal images and text) using a compact latent space.
   - Aims to reduce computational complexity and enhance scalability for large-scale medical datasets.
 
