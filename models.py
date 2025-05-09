@@ -361,32 +361,103 @@ class MedViT(nn.Module):
             state_dict = {k: v for k, v in state_dict.items() if not k.startswith('proj_head')}
         self.load_state_dict(state_dict, strict=False)
 
+class TopicAttention(nn.Module):
+    """Visual and Semantic Topic Attention to emphasize key tokens in text embeddings."""
+    def __init__(self, dim, num_heads=8, dropout=0.1):
+        super(TopicAttention, self).__init__()
+        self.num_heads = num_heads
+        self.dim = dim
+        self.scale = (dim // num_heads) ** -0.5
+        self.qkv = nn.Linear(dim, dim * 3, bias=False)
+        self.attn_drop = nn.Dropout(dropout)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(dropout)
+
+    def forward(self, x, attention_mask=None):
+        B, N, C = x.shape  # [batch, seq_len, dim]
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]  # [batch, heads, seq_len, dim/head]
+        
+        attn = (q @ k.transpose(-2, -1)) * self.scale  # [batch, heads, seq_len, seq_len]
+        if attention_mask is not None:
+            attention_mask = attention_mask.unsqueeze(1).unsqueeze(1)  # [batch, 1, 1, seq_len]
+            attn = attn.masked_fill(attention_mask == 0, float('-inf'))
+        attn = F.softmax(attn, dim=-1)
+        attn = self.attn_drop(attn)
+        
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
+
 class VisionTextModel(nn.Module):
     """
     VisionTextModel: Integrates MedViT vision features with BioGpt text embeddings for multimodal captioning.
-    Concatenates vision and text embeddings, adjusting labels to match sequence length.
+    Supports contrastive loss and visual/semantic topic attention.
     """
-    def __init__(self, vision_model, text_model, vision_dim, text_dim):
+    def __init__(self, vision_model, text_model, vision_dim, text_dim, config):
         super(VisionTextModel, self).__init__()
         self.vision_model = vision_model
         self.text_model = text_model
-        logger.info(f"VisionTextModel initialized with vision_dim={vision_dim}, text_dim={text_dim}")
+        self.config = config
+        self.vision_dim = vision_dim
+        self.text_dim = text_dim
+        
+        # Projection heads for contrastive loss (if enabled)
+        if config.CONS_LOSS:
+            self.vision_proj = nn.Linear(vision_dim, 512)
+            self.text_proj = nn.Linear(text_dim, 512)
+            self.temperature = nn.Parameter(torch.tensor(0.07))
+        
+        # Topic attention module (if enabled)
+        if config.TOPIC_ATTENTION:
+            self.topic_attention = TopicAttention(text_dim, num_heads=8, dropout=0.1)
+        
+        logger.info(f"VisionTextModel initialized with vision_dim={vision_dim}, text_dim={text_dim}, "
+                    f"cons_loss={config.CONS_LOSS}, topic_attention={config.TOPIC_ATTENTION}")
+
+    def contrastive_loss(self, vision_features, text_features):
+        """Compute InfoNCE contrastive loss between vision and text embeddings."""
+        vision_embed = self.vision_proj(vision_features)  # [batch, 512]
+        text_embed = self.text_proj(text_features)       # [batch, 512]
+        
+        # Normalize embeddings
+        vision_embed = F.normalize(vision_embed, dim=-1)
+        text_embed = F.normalize(text_embed, dim=-1)
+        
+        # Compute similarity matrix
+        logits = torch.matmul(vision_embed, text_embed.T) / self.temperature  # [batch, batch]
+        
+        # Labels: diagonal elements are positive pairs
+        batch_size = vision_embed.size(0)
+        labels = torch.arange(batch_size, device=vision_embed.device)
+        
+        # InfoNCE loss (symmetric)
+        loss_v2t = F.cross_entropy(logits, labels)
+        loss_t2v = F.cross_entropy(logits.T, labels)
+        return (loss_v2t + loss_t2v) / 2
 
     def forward(self, pixel_values, input_ids, attention_mask):
-        """Forward pass combining vision and text embeddings, with adjusted labels."""
+        """Forward pass combining vision and text embeddings, with optional contrastive loss and topic attention."""
         try:
             logger.info("Running vision model")
             vision_features = self.vision_model(pixel_values)  # [batch, vision_dim=1024]
             logger.info(f"Vision features shape: {vision_features.shape}")
 
             # Reshape vision features
-            batch_size = pixel_values.size(0)  # Explicitly get batch size
+            batch_size = pixel_values.size(0)
             vision_embed = vision_features.reshape(batch_size, 1, vision_features.size(-1))  # [batch, 1, 1024]
             logger.info(f"Reshaped vision embed shape: {vision_embed.shape}")
 
             logger.info("Getting text embeddings")
             text_embed = self.text_model.get_input_embeddings()(input_ids)  # [batch, seq_len, text_dim=1024]
             logger.info(f"Text embed shape: {text_embed.shape}")
+
+            # Apply topic attention if enabled
+            if self.config.TOPIC_ATTENTION:
+                logger.info("Applying topic attention")
+                text_embed = self.topic_attention(text_embed, attention_mask=attention_mask)
+                logger.info(f"Topic attention applied, text embed shape: {text_embed.shape}")
 
             # Verify dimensions match for concatenation
             if vision_embed.size(-1) != text_embed.size(-1):
@@ -403,7 +474,7 @@ class VisionTextModel(nn.Module):
 
             # Adjust labels to match combined_embed sequence length
             logger.info("Adjusting labels")
-            pad_token_id = self.text_model.config.pad_token_id or 0  # Use BioGpt's pad token
+            pad_token_id = self.text_model.config.pad_token_id or 0
             pad_tokens = torch.full((batch_size, 1), pad_token_id, dtype=input_ids.dtype, device=input_ids.device)
             adjusted_labels = torch.cat([pad_tokens, input_ids], dim=1)  # [batch, 1+seq_len]
             logger.info(f"Adjusted labels shape: {adjusted_labels.shape}")
@@ -423,7 +494,27 @@ class VisionTextModel(nn.Module):
                 labels=adjusted_labels
             )
             logger.info("Text model forward pass completed")
-            return outputs
+            lm_loss = outputs.loss
+
+            # Compute contrastive loss if enabled
+            cont_loss = torch.tensor(0.0, device=lm_loss.device)
+            if self.config.CONS_LOSS:
+                logger.info("Computing contrastive loss")
+                text_features = torch.mean(text_embed, dim=1)  # [batch, text_dim]
+                cont_loss = self.contrastive_loss(vision_features, text_features)
+                logger.info(f"Contrastive loss: {cont_loss.item():.4f}")
+
+            # Combine losses
+            total_loss = lm_loss
+            if self.config.CONS_LOSS:
+                total_loss = total_loss + self.config.CONT_LOSS_WEIGHT * cont_loss
+
+            return {
+                'lm_loss': lm_loss,
+                'cont_loss': cont_loss,
+                'total_loss': total_loss
+            }
+
         except Exception as e:
             logger.error(f"Error in VisionTextModel.forward: {str(e)}")
             raise

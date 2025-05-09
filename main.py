@@ -12,6 +12,7 @@ from models import MedViT, VisionTextModel
 from dataset import EyeNetDataset, load_and_process_json
 from train import train_model_test
 from transformers import BioGptForCausalLM, BioGptTokenizer
+from peft import LoraConfig, get_peft_model
 
 # Configure logging for detailed debugging and monitoring
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -40,12 +41,22 @@ class Config:
     WARMUP_RATIO = 0.05       # Warmup steps ratio
     MAX_LENGTH = 256          # Maximum caption length
     
-    ################# BEAM SEARCH
-    EARLY_STOPPING = False # make it true to use beam_search
-    BEAM_SEARCH = 1 # Assign it to 3 or 5, 1 is greedy search
+    # Beam search decoding
+    BEAM_SEARCH = 1           # Set to 1 for greedy, 3 or 5 for beam search
+    EARLY_STOPPING = False    # Set to True to use early stopping with beam search
     
-    ################# ACTIVATE THE CONTRASTIVE LOSS
-    CONS_LOSS = False
+    # Contrastive loss
+    CONS_LOSS = False         # Set to True to enable contrastive loss
+    CONT_LOSS_WEIGHT = 0.1    # Weight for contrastive loss (if CONS_LOSS=True)
+    
+    # Visual and semantic topic attention
+    TOPIC_ATTENTION = False   # Set to True to enable topic attention
+    
+    # LoRA (Low-Rank Adaptation) for parameter-efficient fine-tuning
+    USE_LORA = False          # Set to True to enable LoRA
+    LORA_RANK = 8             # LoRA rank
+    LORA_ALPHA = 16           # LoRA scaling factor
+    LORA_DROPOUT = 0.1        # Dropout for LoRA layers
     
     # Paths
     PRETRAINED_PATH = 'MedViT_base_im1k.pth'  # Path to pretrained MedViT weights
@@ -60,8 +71,8 @@ class Config:
     CUDA_ENV = {
         "CUDA_LAUNCH_BLOCKING": "1",
         "TORCH_USE_CUDA_DSA": "1",
-        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True", 
-        "TF_ENABLE_ONEDNN_OPTS": "0"  
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+        "TF_ENABLE_ONEDNN_OPTS": "0"
     }
 
 def setup_environment():
@@ -108,9 +119,19 @@ def main():
             raise FileNotFoundError(f"Pretrained weights file not found: {Config.PRETRAINED_PATH}")
         vision_model.load_pretrained_weights(Config.PRETRAINED_PATH)
 
-        # Initialize text model and tokenizer (BioGpt)
+        # Initialize text model and tokenizer (BioGpt) with optional LoRA
         logger.info("Initializing BioGPT model and tokenizer")
         text_model = BioGptForCausalLM.from_pretrained("microsoft/biogpt")
+        if Config.USE_LORA:
+            lora_config = LoraConfig(
+                r=Config.LORA_RANK,
+                lora_alpha=Config.LORA_ALPHA,
+                target_modules=["q_proj", "k_proj", "v_proj", "out_proj"],
+                lora_dropout=Config.LORA_DROPOUT,
+                task_type="CAUSAL_LM"
+            )
+            text_model = get_peft_model(text_model, lora_config)
+            logger.info(f"Applied LoRA to BioGpt with rank={Config.LORA_RANK}, alpha={Config.LORA_ALPHA}")
         tokenizer = BioGptTokenizer.from_pretrained("microsoft/biogpt")
 
         # Initialize combined vision-text model
@@ -119,7 +140,8 @@ def main():
             vision_model=vision_model,
             text_model=text_model,
             vision_dim=Config.VISION_DIM,
-            text_dim=Config.TEXT_DIM
+            text_dim=Config.TEXT_DIM,
+            config=Config
         )
 
         # Define transforms
@@ -172,9 +194,9 @@ def main():
             val_dataset=val_dataset,
             test_dataset=test_dataset,
             output_dir=Config.OUTPUT_DIR,
-            config=Config, 
-            beam_search= Config.BEAM_SEARCH,
-            early_stopping= Config.EARLY_STOPPING
+            config=Config,
+            beam_search=Config.BEAM_SEARCH,
+            early_stopping=Config.EARLY_STOPPING
         )
         logger.info("Training pipeline completed")
 

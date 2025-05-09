@@ -17,7 +17,7 @@ from tqdm import tqdm
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def train_model_test(model, tokenizer, train_dataset, val_dataset, test_dataset, output_dir, config, beam_search = 1, early_stopping = False):
+def train_model_test(model, tokenizer, train_dataset, val_dataset, test_dataset, output_dir, config, beam_search=1, early_stopping=False):
     """
     Test training pipeline for a single epoch with enhanced logging and evaluation.
     
@@ -29,8 +29,8 @@ def train_model_test(model, tokenizer, train_dataset, val_dataset, test_dataset,
         test_dataset: Test dataset.
         output_dir (str): Directory to save outputs.
         config: Configuration object with hyperparameters.
-        beam_search: Number of beam search decoding. **********
-        early_stopping: **********
+        beam_search: Number of beams for decoding (1 for greedy, >1 for beam search).
+        early_stopping: Whether to use early stopping in decoding.
     
     Returns:
         tuple: Trained model and tokenizer.
@@ -40,6 +40,13 @@ def train_model_test(model, tokenizer, train_dataset, val_dataset, test_dataset,
         device = config.DEVICE
         logger.info(f"Using device: {device}")
         model.to(device)
+
+        # Log trainable parameters if LoRA is enabled
+        if config.USE_LORA:
+            trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            total_params = sum(p.numel() for p in model.parameters())
+            logger.info(f"LoRA enabled: {trainable_params}/{total_params} parameters trainable "
+                        f"({trainable_params/total_params*100:.2f}%)")
 
         logger.info("Initializing optimizer")
         optimizer = AdamW(model.parameters(), lr=config.LR, weight_decay=config.WEIGHT_DECAY)
@@ -64,6 +71,8 @@ def train_model_test(model, tokenizer, train_dataset, val_dataset, test_dataset,
         logger.info("Starting training loop")
         model.train()
         train_loss = 0
+        train_lm_loss = 0
+        train_cont_loss = 0
         optimizer.zero_grad()
 
         for batch_idx, batch in enumerate(tqdm(train_dataloader, desc="Testing Epoch")):
@@ -80,8 +89,11 @@ def train_model_test(model, tokenizer, train_dataset, val_dataset, test_dataset,
                 outputs = model(pixel_values=pixel_values, input_ids=input_ids, attention_mask=attention_mask)
                 logger.info(f"Forward pass completed for batch {batch_idx}")
 
-                loss = outputs.loss / config.ACCUM_STEPS
-                logger.info(f"Loss computed for batch {batch_idx}: {loss.item()}")
+                lm_loss = outputs['lm_loss']
+                cont_loss = outputs['cont_loss']
+                loss = outputs['total_loss'] / config.ACCUM_STEPS
+                logger.info(f"Batch {batch_idx} - LM Loss: {lm_loss.item():.4f}, "
+                           f"Contrastive Loss: {cont_loss.item():.4f}, Total Loss: {loss.item() * config.ACCUM_STEPS:.4f}")
 
                 logger.info(f"Performing backward pass for batch {batch_idx}")
                 loss.backward()
@@ -96,17 +108,24 @@ def train_model_test(model, tokenizer, train_dataset, val_dataset, test_dataset,
                     logger.info(f"Optimizer step completed for batch {batch_idx}")
 
                 train_loss += loss.item() * config.ACCUM_STEPS
+                train_lm_loss += lm_loss.item()
+                train_cont_loss += cont_loss.item()
             except Exception as e:
                 logger.error(f"Error processing batch {batch_idx}: {str(e)}")
                 raise
 
         train_loss /= len(train_dataloader)
-        logger.info(f"Training completed, train_loss: {train_loss:.4f}")
+        train_lm_loss /= len(train_dataloader)
+        train_cont_loss /= len(train_dataloader)
+        logger.info(f"Training completed, train_loss: {train_loss:.4f}, "
+                   f"train_lm_loss: {train_lm_loss:.4f}, train_cont_loss: {train_cont_loss:.4f}")
 
         # Validation
         logger.info("Starting validation loop")
         model.eval()
         val_loss = 0
+        val_lm_loss = 0
+        val_cont_loss = 0
         generated_texts = []
         reference_texts = []
 
@@ -118,7 +137,11 @@ def train_model_test(model, tokenizer, train_dataset, val_dataset, test_dataset,
                 attention_mask = batch["attention_mask"].to(device)
 
                 outputs = model(pixel_values=pixel_values, input_ids=input_ids, attention_mask=attention_mask)
-                val_loss += outputs.loss.item()
+                val_loss += outputs['total_loss'].item()
+                val_lm_loss += outputs['lm_loss'].item()
+                val_cont_loss += outputs['cont_loss'].item()
+                logger.info(f"Validation batch {batch_idx} - LM Loss: {outputs['lm_loss'].item():.4f}, "
+                           f"Contrastive Loss: {outputs['cont_loss'].item():.4f}")
 
                 logger.info(f"Generating captions for validation batch {batch_idx}")
                 vision_features = model.vision_model(pixel_values)
@@ -127,9 +150,9 @@ def train_model_test(model, tokenizer, train_dataset, val_dataset, test_dataset,
                 generated_ids = model.text_model.generate(
                     inputs_embeds=vision_embed,
                     attention_mask=torch.ones(batch_size, 1, device=device),
-                    max_length=config.MAX_LENGTH, 
-                    num_beams = beam_search, 
-                    early_stopping = early_stopping
+                    max_length=config.MAX_LENGTH,
+                    num_beams=beam_search,
+                    early_stopping=early_stopping
                 )
                 gen_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
                 ref_texts = tokenizer.batch_decode(input_ids, skip_special_tokens=True)
@@ -138,7 +161,10 @@ def train_model_test(model, tokenizer, train_dataset, val_dataset, test_dataset,
                 reference_texts.extend(ref_texts)
 
         val_loss /= len(val_dataloader)
-        logger.info(f"Validation completed, val_loss: {val_loss:.4f}")
+        val_lm_loss /= len(val_dataloader)
+        val_cont_loss /= len(val_dataloader)
+        logger.info(f"Validation completed, val_loss: {val_loss:.4f}, "
+                   f"val_lm_loss: {val_lm_loss:.4f}, val_cont_loss: {val_cont_loss:.4f}")
 
         # Compute metrics
         logger.info("Computing metrics")
