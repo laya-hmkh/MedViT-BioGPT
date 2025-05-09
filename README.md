@@ -7,18 +7,18 @@ Note: This project is a work in progress. I am actively developing and experimen
 ## Project Overview
 The goal is to develop an automated system for generating accurate and clinically meaningful captions for retinal images, aiding in the diagnosis of conditions like diabetic retinopathy. The model integrates:
 
-  *MedViT: Extracts visual features from retinal images, leveraging pretrained weights from ImageNet.
-  *BioGpt: Generates natural language captions, fine-tuned for biomedical text.
-  *DeepEyeNet Dataset: A specialized dataset of retinal images with clinical descriptions and keywords.
+  * MedViT: Extracts visual features from retinal images, leveraging pretrained weights from ImageNet.
+  * BioGpt: Generates natural language captions, fine-tuned for biomedical text.
+  * DeepEyeNet Dataset: A specialized dataset of retinal images with clinical descriptions and keywords.
 
 
 ## Current Features
 
-  *Beam Search Decoding: Generates coherent captions using beam search (configurable: greedy or beam size 3/5).
-  *Contrastive Loss: Aligns vision and text embeddings for better multimodal understanding.
-  *Visual and Semantic Topic Attention: Emphasizes clinically relevant tokens in captions.
-  *LoRA (Low-Rank Adaptation): Enables parameter-efficient fine-tuning, reducing memory usage on resource-constrained hardware.
-  *Comprehensive Evaluation: Metrics include BLEU, ROUGE, METEOR, BERTScore, and clinical relevance (based on medical term presence).
+  * Beam Search Decoding: Generates coherent captions using beam search (configurable: greedy or beam size 3/5).
+  * Contrastive Loss: Aligns vision and text embeddings for better multimodal understanding.
+  * Visual and Semantic Topic Attention: Emphasizes clinically relevant tokens in captions.
+  * LoRA (Low-Rank Adaptation): Enables parameter-efficient fine-tuning, reducing memory usage on resource-constrained hardware.
+  * Comprehensive Evaluation: Metrics include BLEU, ROUGE, METEOR, BERTScore, and clinical relevance (based on medical term presence).
 
 ## Future Work
 I am exploring the following procedures to enhance the model:
