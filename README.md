@@ -24,6 +24,7 @@ Current Features
 I am exploring the following procedures to enhance the model:
 
   Reinforcement Learning for Caption Generation:
+  
     Apply reinforcement learning (e.g., REINFORCE or Proximal Policy Optimization) to optimize caption generation.
     Use reward functions based on clinical relevance (e.g., presence of medical terms like "diabetic retinopathy") and linguistic coherence to improve caption quality.
 
@@ -38,7 +39,9 @@ models.py: Defines MedViT and VisionTextModel (with contrastive loss and topic a
 dataset.py: Handles DeepEyeNet dataset loading and preprocessing.
 train.py: Implements training, validation, and evaluation loops.
 
+
 Dataset used: DeepEyeNet https://github.com/Jhhuangkay/DeepOpht-Medical-Report-Generation-for-Retinal-Images-via-Deep-Models-and-Visual-Explanation
 Downloading MedViT pre-trained weights on ImageNet1k: https://drive.google.com/file/d/1Lrfzjf3CK7YOztKa8D6lTUZjYJIiT7_s/view?usp=sharing
+
 
 Last updated: May 9, 2025
