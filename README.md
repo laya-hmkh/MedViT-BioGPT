@@ -28,8 +28,8 @@ I am exploring the following procedures to enhance the model:
   -Use reward functions based on clinical relevance (e.g., presence of medical terms like "diabetic retinopathy") and linguistic coherence to improve caption quality.
 
   *Perceiver Architecture:
-  -Integrate the Perceiver model to efficiently process multimodal inputs (retinal images and text) using a compact latent space.
-  -Aims to reduce computational complexity and enhance scalability for large-scale medical datasets.
+  - Integrate the Perceiver model to efficiently process multimodal inputs (retinal images and text) using a compact latent space.
+  - Aims to reduce computational complexity and enhance scalability for large-scale medical datasets.
 
 ## Project Structure
 
