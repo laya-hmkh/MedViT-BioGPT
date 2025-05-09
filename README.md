@@ -33,10 +33,10 @@ I am exploring the following procedures to enhance the model:
 
 ## Project Structure
 
-*main.py: Orchestrates training pipeline and configuration.
-*models.py: Defines MedViT and VisionTextModel (with contrastive loss and topic attention).
-*dataset.py: Handles DeepEyeNet dataset loading and preprocessing.
-*train.py: Implements training, validation, and evaluation loops.
+* main.py: Orchestrates training pipeline and configuration.
+* models.py: Defines MedViT and VisionTextModel (with contrastive loss and topic attention).
+* dataset.py: Handles DeepEyeNet dataset loading and preprocessing.
+* train.py: Implements training, validation, and evaluation loops.
 
 
 Dataset used: DeepEyeNet https://github.com/Jhhuangkay/DeepOpht-Medical-Report-Generation-for-Retinal-Images-via-Deep-Models-and-Visual-Explanation
