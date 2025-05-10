@@ -1,4 +1,4 @@
-# Medical Image Captioning with MedViT and BioGpt
+# Medical Image Captioning with MedViT and BioGPT
 
 This repository contains the implementation of a multimodal medical image captioning model combining MedViT (a vision transformer for medical imaging) and BioGpt (a biomedical language model). The model is designed to generate clinically relevant captions for retinal images from the DeepEyeNet dataset, supporting ophthalmology diagnostics.
 
